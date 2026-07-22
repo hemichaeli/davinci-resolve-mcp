@@ -183,6 +183,135 @@ class DaVinciEditor:
             ]
         }
 
+    def add_text_overlay(self, video: str, text: str, position: str, duration: str, output: str) -> dict:
+        """Add text overlay to video"""
+        video_path = self.output_dir / video if not Path(video).is_absolute() else Path(video)
+        if not video_path.exists():
+            return {"error": f"Video not found: {video_path}"}
+
+        output_path = self.output_dir / output
+        drawtext = f"text='{text}':fontsize=48:fontcolor=white:x={position.split(',')[0]}:y={position.split(',')[1] if ',' in position else '50'}"
+        cmd = [self.ffmpeg_exe, '-y', '-i', str(video_path), '-vf', drawtext, '-c:a', 'copy', str(output_path)]
+
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            if result.returncode == 0:
+                size = output_path.stat().st_size / (1024*1024)
+                return {"success": True, "output": output, "size_mb": f"{size:.2f}"}
+            else:
+                return {"error": result.stderr[:200]}
+        except Exception as e:
+            return {"error": str(e)}
+
+    def add_fade(self, video: str, fade_type: str, duration: str, output: str) -> dict:
+        """Add fade in/out effect"""
+        video_path = self.output_dir / video if not Path(video).is_absolute() else Path(video)
+        if not video_path.exists():
+            return {"error": f"Video not found: {video_path}"}
+
+        output_path = self.output_dir / output
+        if fade_type == "in":
+            fade_filter = f"fade=t=in:st=0:d={duration}"
+        else:
+            fade_filter = f"fade=t=out:st={duration}:d={duration}"
+
+        cmd = [self.ffmpeg_exe, '-y', '-i', str(video_path), '-vf', fade_filter, '-c:a', 'copy', str(output_path)]
+
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            if result.returncode == 0:
+                size = output_path.stat().st_size / (1024*1024)
+                return {"success": True, "output": output, "size_mb": f"{size:.2f}"}
+            else:
+                return {"error": result.stderr[:200]}
+        except Exception as e:
+            return {"error": str(e)}
+
+    def get_video_info(self, video_file: str) -> dict:
+        """Get video metadata"""
+        video_path = self.output_dir / video_file if not Path(video_file).is_absolute() else Path(video_file)
+        if not video_path.exists():
+            return {"error": f"File not found: {video_path}"}
+
+        cmd = [self.ffmpeg_exe, '-i', str(video_path)]
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+            info = result.stderr
+            return {"success": True, "info": info[:1000], "file": str(video_path)}
+        except Exception as e:
+            return {"error": str(e)}
+
+    def extract_audio(self, video: str, output: str) -> dict:
+        """Extract audio from video"""
+        video_path = self.output_dir / video if not Path(video).is_absolute() else Path(video)
+        if not video_path.exists():
+            return {"error": f"Video not found: {video_path}"}
+
+        output_path = self.output_dir / output
+        cmd = [self.ffmpeg_exe, '-y', '-i', str(video_path), '-q:a', '0', '-map', 'a', str(output_path)]
+
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            if result.returncode == 0:
+                size = output_path.stat().st_size / (1024*1024)
+                return {"success": True, "output": output, "size_mb": f"{size:.2f}"}
+            else:
+                return {"error": result.stderr[:200]}
+        except Exception as e:
+            return {"error": str(e)}
+
+    def resize_video(self, video: str, width: int, height: int, output: str) -> dict:
+        """Resize video to specified dimensions"""
+        video_path = self.output_dir / video if not Path(video).is_absolute() else Path(video)
+        if not video_path.exists():
+            return {"error": f"Video not found: {video_path}"}
+
+        output_path = self.output_dir / output
+        scale_filter = f"scale={width}:{height}"
+        cmd = [self.ffmpeg_exe, '-y', '-i', str(video_path), '-vf', scale_filter, '-c:a', 'copy', str(output_path)]
+
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            if result.returncode == 0:
+                size = output_path.stat().st_size / (1024*1024)
+                return {"success": True, "output": output, "size_mb": f"{size:.2f}"}
+            else:
+                return {"error": result.stderr[:200]}
+        except Exception as e:
+            return {"error": str(e)}
+
+    def adjust_speed(self, video: str, speed: float, output: str) -> dict:
+        """Adjust video playback speed"""
+        video_path = self.output_dir / video if not Path(video).is_absolute() else Path(video)
+        if not video_path.exists():
+            return {"error": f"Video not found: {video_path}"}
+
+        output_path = self.output_dir / output
+        setpts_filter = f"setpts={1/speed}*PTS"
+        atempo_filter = f"atempo={speed}"
+        cmd = [self.ffmpeg_exe, '-y', '-i', str(video_path), '-filter:v', setpts_filter, '-filter:a', atempo_filter, str(output_path)]
+
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            if result.returncode == 0:
+                size = output_path.stat().st_size / (1024*1024)
+                return {"success": True, "output": output, "size_mb": f"{size:.2f}"}
+            else:
+                return {"error": result.stderr[:200]}
+        except Exception as e:
+            return {"error": str(e)}
+
+    def cleanup_temp(self) -> dict:
+        """Clean up temporary files"""
+        try:
+            import shutil
+            if self.temp_dir.exists():
+                shutil.rmtree(self.temp_dir)
+                self.temp_dir.mkdir(exist_ok=True)
+            return {"success": True, "message": "Temporary files cleaned"}
+        except Exception as e:
+            return {"error": str(e)}
+
     def get_status(self) -> dict:
         """Server status"""
         return {
@@ -190,7 +319,12 @@ class DaVinciEditor:
             "ffmpeg": str(self.ffmpeg_exe),
             "work_dir": str(self.work_dir),
             "temp_clips": len(list(self.temp_dir.glob("*.mp4"))),
-            "output_files": len(list(self.output_dir.glob("*.mp4")))
+            "output_files": len(list(self.output_dir.glob("*.mp4"))),
+            "available_tools": [
+                "extract_clip", "concatenate", "add_subtitles", "add_text_overlay",
+                "add_fade", "get_video_info", "extract_audio", "resize_video",
+                "adjust_speed", "process_config", "cleanup_temp"
+            ]
         }
 
 
@@ -234,6 +368,41 @@ async def davinci_list_clips():
 @app.get("/davinci_list_outputs")
 async def davinci_list_outputs():
     return editor.list_outputs()
+
+@app.post("/davinci_add_text_overlay")
+async def davinci_add_text_overlay(video_file: str, text: str, position: str, duration: str, output_name: str):
+    result = editor.add_text_overlay(video_file, text, position, duration, output_name)
+    return result
+
+@app.post("/davinci_add_fade")
+async def davinci_add_fade(video_file: str, fade_type: str, duration: str, output_name: str):
+    result = editor.add_fade(video_file, fade_type, duration, output_name)
+    return result
+
+@app.get("/davinci_get_video_info")
+async def davinci_get_video_info(video_file: str):
+    result = editor.get_video_info(video_file)
+    return result
+
+@app.post("/davinci_extract_audio")
+async def davinci_extract_audio(video_file: str, output_name: str):
+    result = editor.extract_audio(video_file, output_name)
+    return result
+
+@app.post("/davinci_resize_video")
+async def davinci_resize_video(video_file: str, width: int, height: int, output_name: str):
+    result = editor.resize_video(video_file, width, height, output_name)
+    return result
+
+@app.post("/davinci_adjust_speed")
+async def davinci_adjust_speed(video_file: str, speed: float, output_name: str):
+    result = editor.adjust_speed(video_file, speed, output_name)
+    return result
+
+@app.post("/davinci_cleanup_temp")
+async def davinci_cleanup_temp():
+    result = editor.cleanup_temp()
+    return result
 
 @app.get("/sse")
 async def sse_endpoint(request_type: str = None):

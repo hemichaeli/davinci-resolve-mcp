@@ -66,7 +66,7 @@ class DaVinciEditor:
 editor = DaVinciEditor()
 
 port = int(os.environ.get("PORT", "8443"))
-mcp = FastMCP("DaVinci Resolve", host="0.0.0.0", port=port)
+mcp = FastMCP("DaVinci Resolve", host="0.0.0.0", port=port, stateless_http=True)
 
 
 @mcp.tool()
@@ -274,6 +274,6 @@ def cleanup_temp() -> str:
 
 
 if __name__ == "__main__":
-    print(f"🚀 DaVinci Resolve MCP Server (MCP/SSE) on 0.0.0.0:{port}")
-    print(f"📊 SSE endpoint: /sse")
-    mcp.run(transport="sse")
+    print(f"🚀 DaVinci Resolve MCP Server (Streamable HTTP) on 0.0.0.0:{port}")
+    print(f"📊 MCP endpoint: /mcp")
+    mcp.run(transport="streamable-http")

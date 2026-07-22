@@ -4,6 +4,7 @@ DaVinci Resolve MCP Server - HTTPS SSE Implementation
 """
 
 import json
+import os
 import subprocess
 import sys
 import asyncio
@@ -446,23 +447,31 @@ def generate_self_signed_cert():
         return None, None
 
 if __name__ == "__main__":
-    port = 8443
-    cert_file, key_file = generate_self_signed_cert()
-
-    print(f"🚀 DaVinci Resolve MCP Server starting on https://localhost:{port}")
-    print(f"📊 SSE Endpoint: https://localhost:{port}/sse")
-    print(f"🎬 API Docs: https://localhost:{port}/docs")
-    print(f"🔐 SSL: {cert_file}")
-
-    if cert_file and key_file:
-        uvicorn.run(
-            app,
-            host="0.0.0.0",
-            port=port,
-            log_level="info",
-            ssl_certfile=cert_file,
-            ssl_keyfile=key_file
-        )
+    # Cloud platforms (Railway/Render) set PORT and terminate TLS at their proxy
+    cloud_port = os.environ.get("PORT")
+    if cloud_port:
+        port = int(cloud_port)
+        print(f"🚀 DaVinci Resolve MCP Server (cloud mode) on http://0.0.0.0:{port}")
+        print(f"📊 SSE Endpoint: /sse")
+        uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
     else:
-        print("⚠️  Running without SSL (install openssl to enable HTTPS)")
-        uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
+        port = 8443
+        cert_file, key_file = generate_self_signed_cert()
+
+        print(f"🚀 DaVinci Resolve MCP Server starting on https://localhost:{port}")
+        print(f"📊 SSE Endpoint: https://localhost:{port}/sse")
+        print(f"🎬 API Docs: https://localhost:{port}/docs")
+        print(f"🔐 SSL: {cert_file}")
+
+        if cert_file and key_file:
+            uvicorn.run(
+                app,
+                host="0.0.0.0",
+                port=port,
+                log_level="info",
+                ssl_certfile=cert_file,
+                ssl_keyfile=key_file
+            )
+        else:
+            print("⚠️  Running without SSL (install openssl to enable HTTPS)")
+            uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")

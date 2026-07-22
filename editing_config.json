@@ -1,0 +1,204 @@
+{
+  "project": {
+    "title": "Project Clip - Yichutiel Adam",
+    "source_video": "original.mp4",
+    "output_video": "project_clip_final.mp4",
+    "target_duration_seconds": 105,
+    "target_duration_range": "1:45-1:55"
+  },
+  "clips": [
+    {
+      "id": 1,
+      "name": "Title Card",
+      "type": "title_screen",
+      "duration": 2.5,
+      "background_color": "#000000",
+      "text_main": "למה הפרויקט התעכב",
+      "text_secondary": "ולמה זה לא בגלל היזם",
+      "font": "Noto Sans Hebrew Bold",
+      "font_size": 72,
+      "text_color": "#FFFFFF",
+      "position": "center"
+    },
+    {
+      "id": 2,
+      "name": "Daniel Blessing",
+      "type": "speaker_clip",
+      "duration": 11,
+      "source_start": "00:47",
+      "source_end": "00:57",
+      "speaker": "Daniel",
+      "text_overlay": "ברוכים הבאים - יקותיאל אדם 36-40",
+      "font_size": 48,
+      "position": "bottom-right"
+    },
+    {
+      "id": 3,
+      "name": "Offer Part 1 - Municipal Support",
+      "type": "speaker_clip",
+      "duration": 16,
+      "source_start": "01:12",
+      "source_end": "01:28",
+      "speaker": "Offer (Mayor Deputy)",
+      "text_overlay": "העירייה תומכת בפרויקט - והוא מתקדם תכנונית",
+      "font_size": 36,
+      "position": "upper-third"
+    },
+    {
+      "id": 4,
+      "name": "Offer Part 2 - District Requirements",
+      "type": "speaker_clip",
+      "duration": 16,
+      "source_start": "06:45",
+      "source_end": "07:01",
+      "speaker": "Offer",
+      "text_overlay": "הדרישות של המחוזית - הן חלק מהעיכובים",
+      "font_size": 42,
+      "text_color": "#FFB81C",
+      "position": "center-lower"
+    },
+    {
+      "id": 5,
+      "name": "Einat Part 1 - Approval Process",
+      "type": "speaker_clip",
+      "duration": 11,
+      "source_start": "10:05",
+      "source_end": "10:16",
+      "speaker": "Einat",
+      "text_overlay": "העירייה ממליצה - המחוזית מאשרת",
+      "font_size": 36,
+      "position": "upper-third"
+    },
+    {
+      "id": 6,
+      "name": "Einat Part 2 - 16 Floors",
+      "type": "speaker_clip",
+      "duration": 9,
+      "source_start": "11:20",
+      "source_end": "11:29",
+      "speaker": "Einat",
+      "text_overlay": "16 קומות לא מספיקות - לפרויקט כלכלי",
+      "font_size": 36,
+      "position": "center"
+    },
+    {
+      "id": 7,
+      "name": "Einat Part 3 - Aviation Survey & Height",
+      "type": "speaker_clip",
+      "duration": 13.5,
+      "source_start": "11:55",
+      "source_end": "12:08",
+      "speaker": "Einat",
+      "text_overlay_1": "מגבלת הגובה הישנה: 86 מטר",
+      "text_overlay_2": "אחרי סקר התעופה: כ-100 מטר",
+      "highlight_numbers": [86, 100],
+      "font_size": 36,
+      "text_color_highlight": "#FFB81C",
+      "position": "upper-third"
+    },
+    {
+      "id": 8,
+      "name": "Einat Part 4 - Requirements 2 Years Ago",
+      "type": "speaker_clip",
+      "duration": 9,
+      "source_start": "12:52",
+      "source_end": "13:01",
+      "speaker": "Einat",
+      "text_overlay": "לפני כ-שנתיים - נדרשה התאמת התוכנית",
+      "font_size": 36,
+      "position": "upper-third"
+    },
+    {
+      "id": 9,
+      "name": "Einat Part 5 - New Plan Viable",
+      "type": "speaker_clip",
+      "duration": 9,
+      "source_start": "14:35",
+      "source_end": "14:44",
+      "speaker": "Einat",
+      "text_overlay": "התוכנית החדשה - מותאמת למחוזית",
+      "font_size": 36,
+      "position": "center"
+    },
+    {
+      "id": 10,
+      "name": "Einat Part 6 - Evacuation & Timeline",
+      "type": "speaker_clip",
+      "duration": 17,
+      "source_start": "16:10",
+      "source_end": "16:27",
+      "speaker": "Einat",
+      "text_overlay_1": "הפינוי עדיין לא מיידי",
+      "text_overlay_2": "2-3 שנים לאישור - ועוד 1-2 שנים להיתר",
+      "highlight_numbers": [2, 3, 1, 2],
+      "font_size": 36,
+      "text_color_highlight": "#FFB81C",
+      "position": "upper-third"
+    },
+    {
+      "id": 11,
+      "name": "Einat Part 7 - Unity & Coordination",
+      "type": "speaker_clip",
+      "duration": 14,
+      "source_start": "18:00",
+      "source_end": "18:14",
+      "speaker": "Einat",
+      "text_overlay_1": "מאוחדים ומאורגנים - עם עורך דין אחד או שניים",
+      "text_overlay_2": "פחות פיצול - יותר קידום",
+      "font_size": 36,
+      "position": "center"
+    },
+    {
+      "id": 12,
+      "name": "Closing Card",
+      "type": "title_screen",
+      "duration": 2.5,
+      "background_color": "#000000",
+      "text_main": "העיכובים היו תכנוניים",
+      "text_secondary": "ושיתוף פעולה יכול לקדם את המתחם",
+      "font": "Noto Sans Hebrew Bold",
+      "font_size": 54,
+      "text_color": "#FFFFFF",
+      "position": "center"
+    }
+  ],
+  "audio": {
+    "normalize": true,
+    "normalize_db": -3,
+    "fade_in_duration": 0.5,
+    "fade_out_duration": 1.0,
+    "codec": "aac",
+    "bitrate": "128k"
+  },
+  "video": {
+    "codec": "libx264",
+    "resolution": "1920x1080",
+    "bitrate": "8000k",
+    "fps": 30,
+    "pix_fmt": "yuv420p"
+  },
+  "fonts": {
+    "hebrew": "Noto Sans Hebrew",
+    "hebrew_bold": "Noto Sans Hebrew Bold",
+    "fallback": "Arial",
+    "fallback_bold": "Arial Bold"
+  },
+  "colors": {
+    "white": "#FFFFFF",
+    "black": "#000000",
+    "orange": "#FFB81C",
+    "gray": "#808080"
+  },
+  "timeline": {
+    "total_duration": 105,
+    "breakdown": {
+      "title": 2.5,
+      "daniel": 11,
+      "offer_1": 16,
+      "offer_2": 16,
+      "transition": 5,
+      "einat_all": 60,
+      "closing": 2.5
+    }
+  }
+}

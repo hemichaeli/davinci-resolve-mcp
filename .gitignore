@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+ENV/
+
+# SSL Certificates
+server.crt
+server.key
+
+# Temp files
+*.tmp
+filelist.txt
+temp_clips/
+output/
+
+# IDE
+.vscode/
+.idea/
+*.swp

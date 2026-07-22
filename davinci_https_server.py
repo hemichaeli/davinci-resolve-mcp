@@ -1,29 +1,22 @@
 #!/usr/bin/env python3
 """
-DaVinci Resolve MCP Server - HTTPS SSE Implementation
+DaVinci Resolve MCP Server - official MCP protocol (SSE transport)
+Video editing tools backed by FFmpeg.
 """
 
 import json
 import os
 import subprocess
 import sys
-import asyncio
 from pathlib import Path
-from typing import Any
-import logging
-import ssl
 
-from fastapi import FastAPI, Response
-from fastapi.responses import StreamingResponse
-import uvicorn
-
-# Fix encoding
+# Fix encoding on Windows
 if sys.platform == 'win32':
     import io
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+from mcp.server.fastmcp import FastMCP
+
 
 class DaVinciEditor:
     """Video editing with FFmpeg"""
@@ -37,7 +30,6 @@ class DaVinciEditor:
         self.ffmpeg_exe = self._find_ffmpeg()
 
     def _find_ffmpeg(self) -> str:
-        """Find FFmpeg"""
         paths = [
             'ffmpeg',
             r'C:\ffmpeg\ffmpeg-master-latest-win64-gpl\bin\ffmpeg.exe',
@@ -45,433 +37,243 @@ class DaVinciEditor:
         ]
         for path in paths:
             try:
-                subprocess.run([path, '-version'], capture_output=True, check=True, timeout=2)
+                subprocess.run([path, '-version'], capture_output=True, check=True, timeout=5)
                 return path
-            except:
+            except Exception:
                 continue
         raise FileNotFoundError("FFmpeg not found")
 
-    def extract_clip(self, video_file: str, start: str, end: str, output: str) -> dict:
-        """Extract clip"""
-        if not Path(video_file).exists():
-            return {"error": f"File not found: {video_file}"}
+    def _resolve(self, video: str) -> Path:
+        p = Path(video)
+        if p.is_absolute():
+            return p
+        for base in (self.output_dir, self.temp_dir, self.work_dir):
+            candidate = base / video
+            if candidate.exists():
+                return candidate
+        return self.output_dir / video
 
-        output_path = self.temp_dir / output
-        cmd = [self.ffmpeg_exe, '-y', '-ss', start, '-to', end, '-i', video_file, '-c', 'copy', str(output_path)]
-
+    def _run(self, cmd: list, timeout: int = 300) -> dict:
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
             if result.returncode == 0:
-                size = output_path.stat().st_size / (1024*1024)
-                return {"success": True, "output": output, "size_mb": f"{size:.2f}"}
-            else:
-                return {"error": result.stderr[:200]}
+                return {"success": True}
+            return {"error": result.stderr[-500:]}
         except Exception as e:
             return {"error": str(e)}
 
-    def concatenate(self, clips: list, output: str) -> dict:
-        """Concatenate clips"""
-        filelist = self.work_dir / 'filelist.txt'
-        try:
-            with open(filelist, 'w') as f:
-                for clip in clips:
-                    clip_path = self.temp_dir / clip
-                    if not clip_path.exists():
-                        return {"error": f"Clip not found: {clip}"}
-                    f.write(f"file '{clip_path}'\n")
 
-            output_path = self.output_dir / output
-            cmd = [self.ffmpeg_exe, '-y', '-f', 'concat', '-safe', '0', '-i', str(filelist), '-c', 'copy', str(output_path)]
-
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-            filelist.unlink()
-
-            if result.returncode == 0:
-                size = output_path.stat().st_size / (1024*1024)
-                return {"success": True, "output": output, "size_mb": f"{size:.2f}", "clips": len(clips)}
-            else:
-                return {"error": result.stderr[:200]}
-        except Exception as e:
-            return {"error": str(e)}
-
-    def add_subtitles(self, video: str, srt: str, output: str) -> dict:
-        """Add subtitles"""
-        video_path = self.output_dir / video if not Path(video).is_absolute() else Path(video)
-        if not video_path.exists():
-            return {"error": f"Video not found: {video_path}"}
-        if not Path(srt).exists():
-            return {"error": f"SRT not found: {srt}"}
-
-        output_path = self.output_dir / output
-        cmd = [self.ffmpeg_exe, '-y', '-i', str(video_path), '-vf', f"subtitles='{srt}'", '-c:a', 'copy', str(output_path)]
-
-        try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-            if result.returncode == 0:
-                size = output_path.stat().st_size / (1024*1024)
-                return {"success": True, "output": output, "size_mb": f"{size:.2f}"}
-            else:
-                return {"error": result.stderr[:200]}
-        except Exception as e:
-            return {"error": str(e)}
-
-    def process_config(self, config_file: str, source: str) -> dict:
-        """Process editing config"""
-        if not Path(config_file).exists():
-            return {"error": f"Config not found: {config_file}"}
-        if not Path(source).exists():
-            return {"error": f"Video not found: {source}"}
-
-        try:
-            with open(config_file, 'r', encoding='utf-8') as f:
-                config = json.load(f)
-        except Exception as e:
-            return {"error": f"Config load failed: {str(e)}"}
-
-        clips_to_concat = []
-        processed = []
-
-        for clip in config.get('clips', []):
-            if clip.get('type') == 'title_screen':
-                continue
-
-            clip_num = f"{clip['id']:02d}"
-            clip_name = clip['name'].replace(' ', '_').replace('/', '_')
-            output_name = f"{clip_num}_{clip_name}.mp4"
-
-            result = self.extract_clip(
-                source,
-                clip.get('source_start', '00:00'),
-                clip.get('source_end', '00:10'),
-                output_name
-            )
-
-            if 'error' not in result:
-                clips_to_concat.append(output_name)
-                processed.append({"name": clip['name'], "output": output_name})
-
-        if clips_to_concat:
-            concat_result = self.concatenate(clips_to_concat, 'project_clips_concatenated.mp4')
-            if 'error' in concat_result:
-                return {"error": f"Concatenation failed: {concat_result['error']}"}
-
-            return {
-                "success": True,
-                "processed": len(processed),
-                "concatenated": concat_result.get('output'),
-                "size_mb": concat_result.get('size_mb')
-            }
-        else:
-            return {"error": "No clips extracted"}
-
-    def list_clips(self) -> dict:
-        """List clips"""
-        clips = sorted(self.temp_dir.glob("*.mp4"))
-        return {
-            "clips": [
-                {"name": c.name, "size_mb": f"{c.stat().st_size / (1024*1024):.2f}"}
-                for c in clips
-            ]
-        }
-
-    def list_outputs(self) -> dict:
-        """List outputs"""
-        files = sorted(self.output_dir.glob("*.mp4"))
-        return {
-            "files": [
-                {"name": f.name, "size_mb": f"{f.stat().st_size / (1024*1024):.2f}"}
-                for f in files
-            ]
-        }
-
-    def add_text_overlay(self, video: str, text: str, position: str, duration: str, output: str) -> dict:
-        """Add text overlay to video"""
-        video_path = self.output_dir / video if not Path(video).is_absolute() else Path(video)
-        if not video_path.exists():
-            return {"error": f"Video not found: {video_path}"}
-
-        output_path = self.output_dir / output
-        drawtext = f"text='{text}':fontsize=48:fontcolor=white:x={position.split(',')[0]}:y={position.split(',')[1] if ',' in position else '50'}"
-        cmd = [self.ffmpeg_exe, '-y', '-i', str(video_path), '-vf', drawtext, '-c:a', 'copy', str(output_path)]
-
-        try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-            if result.returncode == 0:
-                size = output_path.stat().st_size / (1024*1024)
-                return {"success": True, "output": output, "size_mb": f"{size:.2f}"}
-            else:
-                return {"error": result.stderr[:200]}
-        except Exception as e:
-            return {"error": str(e)}
-
-    def add_fade(self, video: str, fade_type: str, duration: str, output: str) -> dict:
-        """Add fade in/out effect"""
-        video_path = self.output_dir / video if not Path(video).is_absolute() else Path(video)
-        if not video_path.exists():
-            return {"error": f"Video not found: {video_path}"}
-
-        output_path = self.output_dir / output
-        if fade_type == "in":
-            fade_filter = f"fade=t=in:st=0:d={duration}"
-        else:
-            fade_filter = f"fade=t=out:st={duration}:d={duration}"
-
-        cmd = [self.ffmpeg_exe, '-y', '-i', str(video_path), '-vf', fade_filter, '-c:a', 'copy', str(output_path)]
-
-        try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-            if result.returncode == 0:
-                size = output_path.stat().st_size / (1024*1024)
-                return {"success": True, "output": output, "size_mb": f"{size:.2f}"}
-            else:
-                return {"error": result.stderr[:200]}
-        except Exception as e:
-            return {"error": str(e)}
-
-    def get_video_info(self, video_file: str) -> dict:
-        """Get video metadata"""
-        video_path = self.output_dir / video_file if not Path(video_file).is_absolute() else Path(video_file)
-        if not video_path.exists():
-            return {"error": f"File not found: {video_path}"}
-
-        cmd = [self.ffmpeg_exe, '-i', str(video_path)]
-        try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
-            info = result.stderr
-            return {"success": True, "info": info[:1000], "file": str(video_path)}
-        except Exception as e:
-            return {"error": str(e)}
-
-    def extract_audio(self, video: str, output: str) -> dict:
-        """Extract audio from video"""
-        video_path = self.output_dir / video if not Path(video).is_absolute() else Path(video)
-        if not video_path.exists():
-            return {"error": f"Video not found: {video_path}"}
-
-        output_path = self.output_dir / output
-        cmd = [self.ffmpeg_exe, '-y', '-i', str(video_path), '-q:a', '0', '-map', 'a', str(output_path)]
-
-        try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-            if result.returncode == 0:
-                size = output_path.stat().st_size / (1024*1024)
-                return {"success": True, "output": output, "size_mb": f"{size:.2f}"}
-            else:
-                return {"error": result.stderr[:200]}
-        except Exception as e:
-            return {"error": str(e)}
-
-    def resize_video(self, video: str, width: int, height: int, output: str) -> dict:
-        """Resize video to specified dimensions"""
-        video_path = self.output_dir / video if not Path(video).is_absolute() else Path(video)
-        if not video_path.exists():
-            return {"error": f"Video not found: {video_path}"}
-
-        output_path = self.output_dir / output
-        scale_filter = f"scale={width}:{height}"
-        cmd = [self.ffmpeg_exe, '-y', '-i', str(video_path), '-vf', scale_filter, '-c:a', 'copy', str(output_path)]
-
-        try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-            if result.returncode == 0:
-                size = output_path.stat().st_size / (1024*1024)
-                return {"success": True, "output": output, "size_mb": f"{size:.2f}"}
-            else:
-                return {"error": result.stderr[:200]}
-        except Exception as e:
-            return {"error": str(e)}
-
-    def adjust_speed(self, video: str, speed: float, output: str) -> dict:
-        """Adjust video playback speed"""
-        video_path = self.output_dir / video if not Path(video).is_absolute() else Path(video)
-        if not video_path.exists():
-            return {"error": f"Video not found: {video_path}"}
-
-        output_path = self.output_dir / output
-        setpts_filter = f"setpts={1/speed}*PTS"
-        atempo_filter = f"atempo={speed}"
-        cmd = [self.ffmpeg_exe, '-y', '-i', str(video_path), '-filter:v', setpts_filter, '-filter:a', atempo_filter, str(output_path)]
-
-        try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-            if result.returncode == 0:
-                size = output_path.stat().st_size / (1024*1024)
-                return {"success": True, "output": output, "size_mb": f"{size:.2f}"}
-            else:
-                return {"error": result.stderr[:200]}
-        except Exception as e:
-            return {"error": str(e)}
-
-    def cleanup_temp(self) -> dict:
-        """Clean up temporary files"""
-        try:
-            import shutil
-            if self.temp_dir.exists():
-                shutil.rmtree(self.temp_dir)
-                self.temp_dir.mkdir(exist_ok=True)
-            return {"success": True, "message": "Temporary files cleaned"}
-        except Exception as e:
-            return {"error": str(e)}
-
-    def get_status(self) -> dict:
-        """Server status"""
-        return {
-            "status": "ready",
-            "ffmpeg": str(self.ffmpeg_exe),
-            "work_dir": str(self.work_dir),
-            "temp_clips": len(list(self.temp_dir.glob("*.mp4"))),
-            "output_files": len(list(self.output_dir.glob("*.mp4"))),
-            "available_tools": [
-                "extract_clip", "concatenate", "add_subtitles", "add_text_overlay",
-                "add_fade", "get_video_info", "extract_audio", "resize_video",
-                "adjust_speed", "process_config", "cleanup_temp"
-            ]
-        }
-
-
-# ========== FASTAPI SERVER ==========
-
-app = FastAPI(title="DaVinci Resolve MCP Server HTTPS")
 editor = DaVinciEditor()
 
-@app.get("/health")
-async def health():
-    return {"status": "healthy", "version": "1.0.0", "ssl": "enabled"}
+port = int(os.environ.get("PORT", "8443"))
+mcp = FastMCP("DaVinci Resolve", host="0.0.0.0", port=port)
 
-@app.get("/davinci_status")
-async def davinci_status():
-    return editor.get_status()
 
-@app.post("/davinci_extract_clip")
-async def davinci_extract_clip(video_file: str, start_time: str, end_time: str, output_name: str):
-    result = editor.extract_clip(video_file, start_time, end_time, output_name)
-    return result
+@mcp.tool()
+def davinci_status() -> str:
+    """Get server status, FFmpeg availability and list of clips/outputs."""
+    return json.dumps({
+        "status": "ready",
+        "ffmpeg": str(editor.ffmpeg_exe),
+        "work_dir": str(editor.work_dir),
+        "temp_clips": [c.name for c in sorted(editor.temp_dir.glob("*.mp4"))],
+        "output_files": [f.name for f in sorted(editor.output_dir.glob("*.mp4"))],
+    }, ensure_ascii=False)
 
-@app.post("/davinci_concatenate")
-async def davinci_concatenate(clips: list, output_name: str):
-    result = editor.concatenate(clips, output_name)
-    return result
 
-@app.post("/davinci_add_subtitles")
-async def davinci_add_subtitles(video_file: str, srt_file: str, output_name: str):
-    result = editor.add_subtitles(video_file, srt_file, output_name)
-    return result
+@mcp.tool()
+def extract_clip(video_file: str, start_time: str, end_time: str, output_name: str) -> str:
+    """Extract a clip from a video between start_time and end_time (HH:MM:SS)."""
+    if not Path(video_file).exists():
+        return json.dumps({"error": f"File not found: {video_file}"})
+    output_path = editor.temp_dir / output_name
+    r = editor._run([editor.ffmpeg_exe, '-y', '-ss', start_time, '-to', end_time,
+                     '-i', video_file, '-c', 'copy', str(output_path)])
+    if r.get("success"):
+        size = output_path.stat().st_size / (1024 * 1024)
+        return json.dumps({"success": True, "output": output_name, "size_mb": f"{size:.2f}"})
+    return json.dumps(r)
 
-@app.post("/davinci_process_config")
-async def davinci_process_config(config_file: str, source_video: str):
-    result = editor.process_config(config_file, source_video)
-    return result
 
-@app.get("/davinci_list_clips")
-async def davinci_list_clips():
-    return editor.list_clips()
-
-@app.get("/davinci_list_outputs")
-async def davinci_list_outputs():
-    return editor.list_outputs()
-
-@app.post("/davinci_add_text_overlay")
-async def davinci_add_text_overlay(video_file: str, text: str, position: str, duration: str, output_name: str):
-    result = editor.add_text_overlay(video_file, text, position, duration, output_name)
-    return result
-
-@app.post("/davinci_add_fade")
-async def davinci_add_fade(video_file: str, fade_type: str, duration: str, output_name: str):
-    result = editor.add_fade(video_file, fade_type, duration, output_name)
-    return result
-
-@app.get("/davinci_get_video_info")
-async def davinci_get_video_info(video_file: str):
-    result = editor.get_video_info(video_file)
-    return result
-
-@app.post("/davinci_extract_audio")
-async def davinci_extract_audio(video_file: str, output_name: str):
-    result = editor.extract_audio(video_file, output_name)
-    return result
-
-@app.post("/davinci_resize_video")
-async def davinci_resize_video(video_file: str, width: int, height: int, output_name: str):
-    result = editor.resize_video(video_file, width, height, output_name)
-    return result
-
-@app.post("/davinci_adjust_speed")
-async def davinci_adjust_speed(video_file: str, speed: float, output_name: str):
-    result = editor.adjust_speed(video_file, speed, output_name)
-    return result
-
-@app.post("/davinci_cleanup_temp")
-async def davinci_cleanup_temp():
-    result = editor.cleanup_temp()
-    return result
-
-@app.get("/sse")
-async def sse_endpoint(request_type: str = None):
-    """SSE endpoint for MCP communication"""
-    async def event_generator():
-        try:
-            if request_type == "status":
-                result = editor.get_status()
-            elif request_type == "list_clips":
-                result = editor.list_clips()
-            elif request_type == "list_outputs":
-                result = editor.list_outputs()
-            else:
-                result = {"error": "Unknown request type"}
-
-            yield f"data: {json.dumps(result, ensure_ascii=False)}\n\n"
-        except Exception as e:
-            yield f"data: {json.dumps({'error': str(e)}, ensure_ascii=False)}\n\n"
-
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
-
-def generate_self_signed_cert():
-    """Generate self-signed SSL certificate"""
-    cert_file = Path("server.crt")
-    key_file = Path("server.key")
-
-    if cert_file.exists() and key_file.exists():
-        return str(cert_file), str(key_file)
-
+@mcp.tool()
+def concatenate(clips: list[str], output_name: str) -> str:
+    """Concatenate clips (from temp_clips dir) into one video in output dir."""
+    filelist = editor.work_dir / 'filelist.txt'
     try:
-        subprocess.run([
-            "openssl", "req", "-x509", "-newkey", "rsa:4096",
-            "-keyout", str(key_file), "-out", str(cert_file),
-            "-days", "365", "-nodes",
-            "-subj", "/CN=localhost"
-        ], check=True, capture_output=True)
-        print(f"✅ SSL Certificate generated: {cert_file} & {key_file}")
-        return str(cert_file), str(key_file)
+        with open(filelist, 'w') as f:
+            for clip in clips:
+                clip_path = editor.temp_dir / clip
+                if not clip_path.exists():
+                    return json.dumps({"error": f"Clip not found: {clip}"})
+                f.write(f"file '{clip_path}'\n")
+        output_path = editor.output_dir / output_name
+        r = editor._run([editor.ffmpeg_exe, '-y', '-f', 'concat', '-safe', '0',
+                         '-i', str(filelist), '-c', 'copy', str(output_path)])
+        filelist.unlink(missing_ok=True)
+        if r.get("success"):
+            size = output_path.stat().st_size / (1024 * 1024)
+            return json.dumps({"success": True, "output": output_name,
+                               "size_mb": f"{size:.2f}", "clips": len(clips)})
+        return json.dumps(r)
     except Exception as e:
-        print(f"⚠️  Could not generate SSL cert: {e}")
-        return None, None
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool()
+def add_subtitles(video_file: str, srt_file: str, output_name: str) -> str:
+    """Burn subtitles (SRT/ASS file) into a video."""
+    video_path = editor._resolve(video_file)
+    if not video_path.exists():
+        return json.dumps({"error": f"Video not found: {video_path}"})
+    if not Path(srt_file).exists():
+        return json.dumps({"error": f"Subtitle file not found: {srt_file}"})
+    output_path = editor.output_dir / output_name
+    srt_escaped = str(srt_file).replace('\\', '/').replace(':', '\\:')
+    r = editor._run([editor.ffmpeg_exe, '-y', '-i', str(video_path),
+                     '-vf', f"subtitles='{srt_escaped}'", '-c:a', 'copy', str(output_path)])
+    if r.get("success"):
+        size = output_path.stat().st_size / (1024 * 1024)
+        return json.dumps({"success": True, "output": output_name, "size_mb": f"{size:.2f}"})
+    return json.dumps(r)
+
+
+@mcp.tool()
+def add_text_overlay(video_file: str, text: str, x: str, y: str, output_name: str,
+                     fontsize: int = 48, fontcolor: str = "white") -> str:
+    """Add a text overlay at position x,y (e.g. x='(w-text_w)/2', y='50')."""
+    video_path = editor._resolve(video_file)
+    if not video_path.exists():
+        return json.dumps({"error": f"Video not found: {video_path}"})
+    output_path = editor.output_dir / output_name
+    drawtext = f"drawtext=text='{text}':fontsize={fontsize}:fontcolor={fontcolor}:x={x}:y={y}"
+    r = editor._run([editor.ffmpeg_exe, '-y', '-i', str(video_path),
+                     '-vf', drawtext, '-c:a', 'copy', str(output_path)])
+    if r.get("success"):
+        size = output_path.stat().st_size / (1024 * 1024)
+        return json.dumps({"success": True, "output": output_name, "size_mb": f"{size:.2f}"})
+    return json.dumps(r)
+
+
+@mcp.tool()
+def add_fade(video_file: str, fade_type: str, start_seconds: float, duration_seconds: float,
+             output_name: str) -> str:
+    """Add fade effect. fade_type is 'in' or 'out'."""
+    video_path = editor._resolve(video_file)
+    if not video_path.exists():
+        return json.dumps({"error": f"Video not found: {video_path}"})
+    output_path = editor.output_dir / output_name
+    fade_filter = f"fade=t={'in' if fade_type == 'in' else 'out'}:st={start_seconds}:d={duration_seconds}"
+    r = editor._run([editor.ffmpeg_exe, '-y', '-i', str(video_path),
+                     '-vf', fade_filter, '-c:a', 'copy', str(output_path)])
+    if r.get("success"):
+        size = output_path.stat().st_size / (1024 * 1024)
+        return json.dumps({"success": True, "output": output_name, "size_mb": f"{size:.2f}"})
+    return json.dumps(r)
+
+
+@mcp.tool()
+def get_video_info(video_file: str) -> str:
+    """Get video metadata (duration, resolution, codecs)."""
+    video_path = editor._resolve(video_file)
+    if not video_path.exists():
+        return json.dumps({"error": f"File not found: {video_path}"})
+    try:
+        result = subprocess.run([editor.ffmpeg_exe, '-i', str(video_path)],
+                                capture_output=True, text=True, timeout=15)
+        return json.dumps({"success": True, "info": result.stderr[-1500:], "file": str(video_path)},
+                          ensure_ascii=False)
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool()
+def extract_audio(video_file: str, output_name: str) -> str:
+    """Extract audio track from a video (e.g. to MP3)."""
+    video_path = editor._resolve(video_file)
+    if not video_path.exists():
+        return json.dumps({"error": f"Video not found: {video_path}"})
+    output_path = editor.output_dir / output_name
+    r = editor._run([editor.ffmpeg_exe, '-y', '-i', str(video_path),
+                     '-q:a', '0', '-map', 'a', str(output_path)])
+    if r.get("success"):
+        size = output_path.stat().st_size / (1024 * 1024)
+        return json.dumps({"success": True, "output": output_name, "size_mb": f"{size:.2f}"})
+    return json.dumps(r)
+
+
+@mcp.tool()
+def resize_video(video_file: str, width: int, height: int, output_name: str) -> str:
+    """Resize/scale a video to width x height."""
+    video_path = editor._resolve(video_file)
+    if not video_path.exists():
+        return json.dumps({"error": f"Video not found: {video_path}"})
+    output_path = editor.output_dir / output_name
+    r = editor._run([editor.ffmpeg_exe, '-y', '-i', str(video_path),
+                     '-vf', f"scale={width}:{height}", '-c:a', 'copy', str(output_path)])
+    if r.get("success"):
+        size = output_path.stat().st_size / (1024 * 1024)
+        return json.dumps({"success": True, "output": output_name, "size_mb": f"{size:.2f}"})
+    return json.dumps(r)
+
+
+@mcp.tool()
+def adjust_speed(video_file: str, speed: float, output_name: str) -> str:
+    """Change playback speed (e.g. 1.5 = 50% faster, 0.5 = half speed)."""
+    video_path = editor._resolve(video_file)
+    if not video_path.exists():
+        return json.dumps({"error": f"Video not found: {video_path}"})
+    output_path = editor.output_dir / output_name
+    r = editor._run([editor.ffmpeg_exe, '-y', '-i', str(video_path),
+                     '-filter:v', f"setpts={1/speed}*PTS", '-filter:a', f"atempo={speed}",
+                     str(output_path)])
+    if r.get("success"):
+        size = output_path.stat().st_size / (1024 * 1024)
+        return json.dumps({"success": True, "output": output_name, "size_mb": f"{size:.2f}"})
+    return json.dumps(r)
+
+
+@mcp.tool()
+def process_config(config_file: str, source_video: str) -> str:
+    """Process an editing config JSON: extract all defined clips and concatenate them."""
+    if not Path(config_file).exists():
+        return json.dumps({"error": f"Config not found: {config_file}"})
+    if not Path(source_video).exists():
+        return json.dumps({"error": f"Video not found: {source_video}"})
+    try:
+        with open(config_file, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+    except Exception as e:
+        return json.dumps({"error": f"Config load failed: {e}"})
+
+    clips_to_concat = []
+    for clip in config.get('clips', []):
+        if clip.get('type') == 'title_screen':
+            continue
+        output_name = f"{clip['id']:02d}_{clip['name'].replace(' ', '_').replace('/', '_')}.mp4"
+        r = json.loads(extract_clip(source_video, clip.get('source_start', '00:00'),
+                                    clip.get('source_end', '00:10'), output_name))
+        if r.get("success"):
+            clips_to_concat.append(output_name)
+
+    if not clips_to_concat:
+        return json.dumps({"error": "No clips extracted"})
+    return concatenate(clips_to_concat, 'project_clips_concatenated.mp4')
+
+
+@mcp.tool()
+def cleanup_temp() -> str:
+    """Delete all temporary clips."""
+    try:
+        import shutil
+        if editor.temp_dir.exists():
+            shutil.rmtree(editor.temp_dir)
+            editor.temp_dir.mkdir(exist_ok=True)
+        return json.dumps({"success": True, "message": "Temporary files cleaned"})
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
 
 if __name__ == "__main__":
-    # Cloud platforms (Railway/Render) set PORT and terminate TLS at their proxy
-    cloud_port = os.environ.get("PORT")
-    if cloud_port:
-        port = int(cloud_port)
-        print(f"🚀 DaVinci Resolve MCP Server (cloud mode) on http://0.0.0.0:{port}")
-        print(f"📊 SSE Endpoint: /sse")
-        uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
-    else:
-        port = 8443
-        cert_file, key_file = generate_self_signed_cert()
-
-        print(f"🚀 DaVinci Resolve MCP Server starting on https://localhost:{port}")
-        print(f"📊 SSE Endpoint: https://localhost:{port}/sse")
-        print(f"🎬 API Docs: https://localhost:{port}/docs")
-        print(f"🔐 SSL: {cert_file}")
-
-        if cert_file and key_file:
-            uvicorn.run(
-                app,
-                host="0.0.0.0",
-                port=port,
-                log_level="info",
-                ssl_certfile=cert_file,
-                ssl_keyfile=key_file
-            )
-        else:
-            print("⚠️  Running without SSL (install openssl to enable HTTPS)")
-            uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
+    print(f"🚀 DaVinci Resolve MCP Server (MCP/SSE) on 0.0.0.0:{port}")
+    print(f"📊 SSE endpoint: /sse")
+    mcp.run(transport="sse")
